@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f8f9f7">
+    <meta name="description" content="LifeOps is a schoolwork companion that helps students find a clear next step.">
+    <title>LifeOps — a calmer way to handle schoolwork</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/privacy.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="LifeOps home">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>LifeOps</span>
+      </a>
+      <nav class="main-nav" aria-label="Main navigation">
+        <a href="#product">Chat</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#case-pack">For judges</a>
+      </nav>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark mode">Dark</button>
+      <button class="header-link account-button" id="account-button" type="button">Sign in</button>
+      <a class="header-link" href="#product">Open chat <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <main id="top">
+      <section class="hero page-wrap">
+        <p class="eyebrow">A schoolwork companion for real, busy days</p>
+        <h1>Let’s figure out <span>what’s next.</span></h1>
+        <p class="hero-intro">Tell LifeOps what’s on your mind. Sort it out one step at a time, at your pace.</p>
+        <button class="hero-action" id="hero-signup" type="button">Create a student account</button>
+      </section>
+
+      <section class="page-wrap product-section" id="product">
+        <div class="workspace">
+          <div class="workspace-main">
+            <div class="workspace-topbar">
+              <div><h2>Talk it through</h2><p>Start anywhere. You can keep chatting.</p></div>
+              <button class="text-button" id="clear-button" type="button">New chat</button>
+            </div>
+            <div class="mode-note" id="mode-banner" role="status"><span class="mode-dot" aria-hidden="true"></span><span id="mode-copy">Checking chat availability…</span></div>
+
+            <div class="planner-grid">
+              <section class="chat-panel" aria-labelledby="chat-title">
+                <div class="panel-heading">
+                  <div><h3 id="chat-title">LifeOps</h3><span class="panel-subtitle" id="chat-mode">A schoolwork companion</span></div>
+                </div>
+                <div class="chat-content" id="chat-content" aria-live="polite">
+                  <div class="empty-chat" id="empty-chat">
+                    <h4>What’s on your mind?</h4>
+                    <p>Homework, a busy week, or just not knowing where to start — tell me a little about it.</p>
+                    <button class="sample-link" id="rehearsal-button" type="button">See one scripted example</button>
+                  </div>
+                </div>
+                <div class="chat-actions" id="chat-actions" hidden>
+                  <button class="text-button" id="speak-button" type="button" disabled>Read reply aloud</button>
+                </div>
+                <form class="chat-form" id="chat-form">
+                  <label class="visually-hidden" for="message-input">Message LifeOps</label>
+                  <input id="message-input" name="message" maxlength="4000" placeholder="Write a message…" autocomplete="off" disabled>
+                  <button class="voice-button" id="voice-button" type="button" aria-label="Record a voice message" title="Voice input is not available in this browser" disabled>Mic</button>
+                  <button type="submit" aria-label="Send message" disabled id="send-button">Send</button>
+                </form>
+                <details class="chat-info">
+                  <summary>How chat works</summary>
+                  <p class="chat-footnote" id="chat-footnote">Checking how chat works…</p>
+                </details>
+              </section>
+
+            </div>
+            <details class="task-manager" id="task-manager">
+              <summary>Tasks <span class="task-count" id="task-count">0</span></summary>
+              <div class="task-manager-content">
+                <form class="task-form" id="task-form">
+                  <label>Task<input id="task-title-input" maxlength="180" required placeholder="e.g. Pay for the school trip"></label>
+                  <label>Due date<input id="task-due-input" type="date"></label>
+                  <label>Notes<input id="task-notes-input" maxlength="500" placeholder="Optional details"></label>
+                  <label class="payment-check"><input id="task-payment-required" type="checkbox"><span>Needs a payment</span></label>
+                  <div class="payment-fields" id="payment-fields" hidden>
+                    <label>Amount (₹)<input id="task-payment-amount" type="number" min="0.01" max="50000" step="0.01" placeholder="0.00"></label>
+                    <label>Payment method<select id="task-payment-method"><option value="upi">UPI</option><option value="card">Card</option></select></label>
+                    <p>A verified guardian must approve. No money is charged in this prototype.</p>
+                  </div>
+                  <button type="submit" class="button button-dark">Add task</button>
+                </form>
+                <div class="task-list" id="task-list"></div>
+                <p class="task-empty" id="task-empty">No tasks yet. Add one here or ask LifeOps in chat.</p>
+                <p class="task-storage-note" id="task-storage-note">Tasks stay on this device until you sign in and connect Supabase. No reminders are sent.</p>
+              </div>
+            </details>
+            <section class="guardian-panel" id="guardian-panel" hidden>
+              <div class="guardian-heading"><h3>Guardian requests</h3><button class="text-button" id="refresh-payments" type="button">Refresh</button></div>
+              <div id="payment-request-list"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="section how-section" id="how-it-works">
+        <div class="page-wrap">
+          <div class="section-heading">
+            <div><p class="eyebrow">How it works</p><h2>Helpful, not in charge.</h2></div>
+          </div>
+          <div class="steps-grid">
+            <article class="step-card"><span class="step-number">01</span><div class="step-icon step-icon-peach">“ ”</div><h3>Tell LifeOps</h3><p>“Maths is due tomorrow. I don’t know where to start.”</p></article>
+            <article class="step-card"><span class="step-number">02</span><div class="step-icon step-icon-lilac">✳</div><h3>Get a clear next step</h3><p>LifeOps uses what you said. If something’s unclear, it asks instead of guessing.</p></article>
+            <article class="step-card"><span class="step-number">03</span><div class="step-icon step-icon-green">✓</div><h3>You stay in charge</h3><p>Review a suggestion. Add it only if you choose. Nothing gets sent for you.</p></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section case-section page-wrap" id="case-pack">
+        <div class="case-title-row">
+          <div><p class="eyebrow"><span class="eyebrow-dot"></span> The Great Rewiring · Round 3</p><h2>How LifeOps works.</h2></div>
+          <a class="case-badge" href="https://the-ken.com/case-competition-2026/#round-3-rules" target="_blank" rel="noreferrer">ROUND 3 RULES ↗ <span>·</span> WORKING DRAFT</a>
+        </div>
+        <details class="case-disclosure" name="judge-details">
+          <summary><span>Explore the Round 3 submission</span><span class="disclosure-meta">Run evidence · system design · rails</span></summary>
+          <div class="evidence-sections">
+            <details class="evidence-group" name="evidence">
+              <summary><span>01</span><span>The student and the agent run</span><span class="evidence-hint">Story · decisions</span></summary>
+              <div class="case-grid">
+          <article class="case-card case-story">
+            <div class="case-card-heading"><span class="case-index">01 / PART ONE</span><span class="case-card-mark">✳</span></div>
+            <h3>The story of one student</h3>
+            <p class="case-disclaimer">Rehearsal template — replace with a named participant's consented real run before submission.</p>
+            <textarea id="story-template" rows="4" aria-label="Editable story template">[Student name] opens LifeOps on [date] at [time] and says, “[exact words from the recording].” LifeOps uses only that message and the date from its server clock. It asks about anything unclear, then suggests a small checklist item. [Student name] reviews it, chooses whether to add it, and hears LifeOps read the reply aloud. Nothing is sent to a teacher, parent, or school calendar.</textarea>
+            <div class="story-meter"><span id="story-count">0 words</span><span>100 words max · record the real run first</span></div>
+          </article>
+          <article class="case-card case-decisions">
+            <div class="case-card-heading"><span class="case-index">02 / DECISION TRACE</span><span class="trace-status" id="trace-status">WAITING FOR A RUN</span><button class="text-button trace-export" id="export-button" type="button" disabled>Export run JSON</button></div>
+            <h3>Every choice, in order.</h3>
+            <p>Live runs capture the student's exact input and the real connector request/response. The rehearsal below is explicitly scripted and is not submission evidence.</p>
+            <ol class="event-list" id="event-log"><li class="event-empty">Start a rehearsal or a configured live run to populate this trace.</li></ol>
+          </article>
+              </div>
+            </details>
+            <details class="evidence-group" name="evidence">
+              <summary><span>02</span><span>What LifeOps knows and connects to</span><span class="evidence-hint">Day one · APIs</span></summary>
+              <div class="case-grid">
+          <article class="case-card case-day-one">
+            <div class="case-card-heading"><span class="case-index">03 / DAY-ONE KNOWLEDGE</span><span class="case-card-mark">↗</span></div>
+            <h3>What LifeOps knows at the start</h3>
+            <ul class="compact-list">
+              <li><strong>Nothing about the student by default.</strong> No school, timetable, name, grades, or assignments are preloaded.</li>
+              <li><strong>The student supplies the current request</strong> in this chat; tasks and preferences are only learned from the student's own messages. The visible input and receipt time are logged.</li>
+              <li><strong>Account memory:</strong> when signed in, tasks and chat messages are stored in the student's Supabase account and protected by row-level security. Without an account, tasks stay in this browser only.</li>
+              <li><strong>Clock:</strong> server time in IST for relative-date questions; no external time event or calendar feed. A school timetable is not connected.</li>
+              <li><strong>Future onboarding:</strong> a student would enter preferences directly; an official timetable would require a school-authorized source and guardian/student consent first.</li>
+            </ul>
+          </article>
+          <article class="case-card case-integrations">
+            <div class="case-card-heading"><span class="case-index">04 / CONNECTOR RECEIPTS</span><span class="case-card-mark">⌁</span></div>
+            <h3>Real calls, not imagined ones.</h3>
+            <p>Actual requests and responses appear in the trace after a configured live run. Secrets are never included in the displayed request.</p>
+            <div class="connector-list">
+              <div><span class="connector-name">Groq · chat</span><code>POST https://api.groq.com/openai/v1/chat/completions</code><span class="connector-detail">Live only with server-side GROQ_API_KEY and GROQ_MODEL.</span></div>
+              <div class="connector-pending"><span class="connector-name">Supabase · auth and storage</span><span class="pending-chip">NEEDS PROJECT KEYS + SCHEMA</span><span class="connector-detail">Account sign-up, task/chat storage and guardian links are implemented against user-scoped Supabase REST APIs. Apply database/schema.sql and configure SUPABASE_URL plus SUPABASE_ANON_KEY.</span></div>
+              <div class="connector-pending"><span class="connector-name">Gnani · voice input</span><span class="pending-chip">NOT CONNECTED</span><span class="connector-detail">Browser speech recognition is available in supported browsers, but it is not Gnani. The required connector call and its response are not implemented.</span></div>
+              <div class="connector-pending"><span class="connector-name">Pine Labs · payments</span><span class="pending-chip">CURRENT TOOL CONFIG NEEDS RECHECK</span><span class="connector-detail">A previous view showed the <code>pinelabs_plural</code> connector, but the latest AgenticOrg Overview showed “No tools configured” after tool-scope changes. Current agent scopes are unknown. Do not assume either order tool is configured or run the payment agent.</span></div>
+            </div>
+            <details class="prompt-details"><summary>View the system prompt</summary><pre id="system-prompt">Loading…</pre></details>
+          </article>
+              </div>
+            </details>
+            <details class="evidence-group" name="evidence">
+              <summary><span>03</span><span>Readiness and recording plan</span><span class="evidence-hint">Scores · submission</span></summary>
+              <div class="case-grid">
+          <article class="case-card case-rails">
+            <div class="case-card-heading"><span class="case-index">05 / AGENT-READINESS RAILS</span><span class="case-card-mark">⌁</span></div>
+            <h3>Honest scores, with a reason.</h3>
+            <div class="rail-score"><div><span>Student tasks and chat</span><strong>6<span>/10</span></strong></div><div class="score-track"><span class="score-50"></span></div><p>Manual, chat-approved tasks and voice transcripts share one task list; Groq and Supabase keys are still blank.</p></div>
+            <div class="rail-score"><div><span>Account memory · Supabase</span><strong>4<span>/10</span></strong></div><div class="score-track"><span class="score-50"></span></div><p>Schema, Auth and row-scoped REST paths are prepared; project keys, migration, retention/deletion controls and live testing remain.</p></div>
+            <div class="rail-score"><div><span>Guardian verification</span><strong>3<span>/10</span></strong></div><div class="score-track"><span class="score-20"></span></div><p>Email-matched, expiring invite-code flow and approval policies are prepared; no live Supabase project or identity review.</p></div>
+            <div class="rail-score"><div><span>Voice · Gnani</span><strong>2<span>/10</span></strong></div><div class="score-track"><span class="score-20"></span></div><p>Browser speech input/output works where supported. Required Gnani connector/API is not connected.</p></div>
+            <div class="rail-score"><div><span>Payments · Pine Labs</span><strong>1<span>/10</span></strong></div><div class="score-track"><span class="score-10"></span></div><p>AgenticOrg's latest Overview showed no tools configured. Current scopes, safe synthetic mode, tool schemas, and pre-call guardian enforcement are unverified. This local prototype makes no Pine Labs call.</p></div>
+          </article>
+          <article class="case-card case-demo">
+            <div class="case-card-heading"><span class="case-index">06 / FIVE-MINUTE RECORDING</span><span class="case-card-mark">◉</span></div>
+            <h3>Capture the whole moment.</h3>
+            <ol class="number-list"><li>Start recording before the first real student input.</li><li>Show input, each actual connector call and exact response, the agent reply, and the student's approval/action.</li><li>Fast-forward model wait; stop once the agreed outcome is reached. Keep the final clip under five minutes.</li><li>Submit the recording link, exact system prompt, model name and decision trace.</li></ol>
+            <p class="case-disclaimer">Do not submit the scripted rehearsal as a real agent run.</p>
+          </article>
+              </div>
+            </details>
+            <details class="evidence-group" name="evidence">
+              <summary><span>04</span><span>Evaluation cases and run history</span><span class="evidence-hint">Test plan · honest results</span></summary>
+              <div class="case-grid">
+                <article class="case-card">
+                  <div class="case-card-heading"><span class="case-index">07 / EVAL PLAN</span><button class="text-button" id="download-evaluation-pack" type="button">Download evidence JSON</button></div>
+                  <h3>Ten situations to test</h3>
+                  <p>These are evaluation cases with expected behavior, not completed test results. Run them on the configured competition agent and replace each status with evidence-based outcomes before submission.</p>
+                  <ol class="eval-case-list" id="evaluation-cases"><li>Loading evaluation cases…</li></ol>
+                </article>
+                <article class="case-card">
+                  <div class="case-card-heading"><span class="case-index">08 / RUN LOG</span><span class="pending-chip">ONE FAILED SHADOW ATTEMPT</span></div>
+                  <h3>What has actually been run</h3>
+                  <ol class="event-list" id="evaluation-run-log"><li class="event-empty">Loading observed run history…</li></ol>
+                  <p>Historical prompt snapshots and full model/platform traces are not available locally. Do not present the scripted rehearsal as a real test run.</p>
+                </article>
+              </div>
+            </details>
+          </div>
+        </details>
+      </section>
+
+      <section class="business-section page-wrap" id="business">
+          <details class="business-disclosure" name="judge-details">
+            <summary><span>Explore the business plan</span><span class="disclosure-meta">Builder · buyer · launch · risks</span></summary>
+            <div class="business-grid">
+            <article class="business-lead"><span class="business-number">01</span><div class="business-icon">↗</div><h3>Meet students where their school already is.</h3><p><strong>Proposed builder: Teachmint, as a hypothesis to validate.</strong> The potential edge is a route into school admin and parent communication workflows, not a unique AI model. Hypothesis for why it is not built yet: dependable AI around minors' school data requires higher trust and consent safeguards than a generic planner. Validate both assumptions with the company; there is no relationship or endorsement implied.</p><span class="business-foot">INSIDE AN EXISTING SCHOOL APP · OPT-IN BY STUDENT + GUARDIAN</span></article>
+            <article class="business-note"><span class="business-number">02</span><div class="note-symbol">₹</div><h3>Who pays?</h3><p>Proposed buyer: the school, on an annual per-active-student subscription. Pilot price hypothesis: ₹99 per student per month. Today, teachers and parents coordinate homework reminders across school channels and manual lists; the cost is staff/parent follow-up time, which the pilot must measure before claiming savings.</p><span class="business-foot">SCHOOL-PAYS · NOT A MINOR'S PAYMENT</span></article>
+            <article class="business-note"><span class="business-number">03</span><div class="note-symbol note-symbol-peach">1k</div><h3>First 1,000 students.</h3><p>Recruit five schools through principal/teacher champions, with 200 opt-in students each. Run a two-week class pilot; show the companion in parent orientation and school community groups. First try: turn one real assignment into a plan. Week-three habit: a student-owned weekly reset and visible progress.</p><span class="business-foot">5 SCHOOLS × 200 OPT-INS · A DISTRIBUTION TEST</span></article>
+            <article class="business-note"><span class="business-number">04</span><div class="note-symbol note-symbol-lilac">!</div><h3>What could kill it?</h3><p>Wrong deadlines erode trust. Privacy or consent failures involving minors end the pilot. Students may not return after novelty fades; schools may not pay or share distribution; voice can fail in noisy classrooms or across languages. Pilot against each risk and stop if accuracy, safety or week-three retention misses the bar.</p><span class="business-foot">TRUST FIRST · RETENTION IS THE TEST</span></article>
+            </div>
+            <p class="business-caveat">Pine Labs card/UPI checkout is part of LifeOps's earlier-round proposal for student expenses such as a trip or materials. The latest AgenticOrg Overview showed no tools configured, so the current connector/agent state is unknown. Every student payment must be explicitly approved by a verified guardian; this local build records approval requests only and does not charge money.</p>
+          </details>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <a class="brand footer-brand" href="#top"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span><span>LifeOps</span></a>
+      <span>LifeOps · The Great Rewiring · Round 3 prototype</span>
+      <a href="#case-pack">For judges ↑</a>
+    </footer>
+    <dialog class="app-dialog" id="account-dialog">
+      <form method="dialog" class="dialog-top"><h2>LifeOps account</h2><button aria-label="Close" class="dialog-close">×</button></form>
+      <p class="dialog-intro">Sign in to keep tasks and chat history with your account. Use a parent or guardian account to approve payment requests.</p>
+      <p class="dialog-status" id="account-status">Checking account setup…</p>
+      <form id="auth-form" class="dialog-form">
+        <label id="auth-name-field">Name<input id="auth-name" maxlength="80" autocomplete="name" placeholder="Name"></label>
+        <label>Email<input id="auth-email" type="email" autocomplete="email" required></label>
+        <label>Password<input id="auth-password" type="password" autocomplete="current-password" minlength="12" maxlength="128" required><small>At least 12 characters.</small></label>
+        <label>Account type<select id="auth-account-type"><option value="student">Student</option><option value="guardian">Parent or guardian</option></select></label>
+        <div class="dialog-actions"><button class="button button-dark" id="auth-submit" type="submit">Sign in</button><button class="text-button" id="auth-mode-toggle" type="button">Create account instead</button></div>
+      </form>
+      <div id="signed-in-tools" hidden>
+        <p id="signed-in-label"></p>
+        <button class="text-button delete-history-button" id="delete-conversation" type="button">Delete this saved conversation</button>
+        <form id="guardian-invite-form" class="dialog-form">
+          <h3>Link a parent or guardian</h3>
+          <label>Guardian email<input id="guardian-email" type="email" required></label>
+          <button type="submit" class="button button-dark">Create invite code</button>
+          <p id="guardian-invite-result" role="status"></p>
+        </form>
+        <form id="guardian-accept-form" class="dialog-form">
+          <h3>Accept a guardian invite</h3>
+          <label>Invite code<input id="guardian-code" minlength="48" maxlength="48" required></label>
+          <button type="submit" class="button button-dark">Verify link</button>
+        </form>
+        <button class="text-button" id="sign-out-button" type="button">Sign out</button>
+      </div>
+      <p class="dialog-footnote" id="account-footnote">Accounts and cloud data are disabled until Supabase is configured. Email verification confirms control of an inbox, not legal guardianship. Never add real student or payment data to this prototype.</p>
+    </dialog>
+    <dialog class="app-dialog" id="settings-dialog">
+      <form method="dialog" class="dialog-top"><h2>Settings</h2><button aria-label="Close" class="dialog-close">×</button></form>
+      <form id="settings-form" class="dialog-form">
+        <label>Appearance<select id="settings-theme"><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+        <label>Maximum payment request (₹)<input id="approval-limit" type="number" min="0" max="50000" step="0.01" value="50000"></label>
+        <label>Chat retention (days)<input id="chat-retention-days" type="number" min="7" max="365" step="1" value="90"></label>
+        <p>Set 0 to block payment requests. Every student payment still requires explicit approval by a linked guardian; this never auto-charges. Old saved chats are deleted the next time you open LifeOps while signed in after the chosen retention period. Tasks are kept until you remove them.</p>
+        <button type="submit" class="button button-dark">Save settings</button>
+      </form>
+    </dialog>
+    <button class="settings-fab" id="settings-button" type="button">Settings</button>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
