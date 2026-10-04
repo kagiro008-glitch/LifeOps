@@ -136,7 +136,7 @@ function apiConfiguration() {
   const pineMode = process.env.PINE_LABS_ENV === "production" ? "production" : "sandbox";
   const callbackUrl = getPineCallbackUrl();
   return {
-    build: "lifeops-workspace-2026-10-04",
+    build: "lifeops-workspace-v1",
     groq: {
       ready: Boolean(process.env.GROQ_API_KEY && process.env.GROQ_MODEL),
       model: process.env.GROQ_API_KEY && process.env.GROQ_MODEL ? process.env.GROQ_MODEL : null,
