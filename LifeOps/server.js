@@ -8,14 +8,36 @@ const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, "public");
 loadDotEnv();
 const MAX_BODY_BYTES = 1024 * 1024;
+const MAX_AUDIO_BYTES = 6 * 1024 * 1024;
 const PORT = Number(process.env.PORT || 4173);
 const SESSION_COOKIE = "lifeops_session";
-const BROWSER_HEARTBEAT_TIMEOUT_MS = 10000;
-const IDLE_SHUTDOWN_GRACE_MS = 2000;
+const BROWSER_HEARTBEAT_TIMEOUT_MS = 15000;
+const IDLE_SHUTDOWN_GRACE_MS = 2500;
 const sessions = new Map();
 const browserClients = new Map();
+const pineOrderByPaymentId = new Map();
+let browserHasConnected = false;
 let idleShutdownTimer;
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const PINE_LABS_HOSTS = {
+  sandbox: "https://pluraluat.v2.pinepg.in",
+  production: "https://api.pluralpay.in",
+};
+const GNANI_VOICES = {
+  "en-IN": "Kaveri",
+  "hi-IN": "Nalini",
+  "hi-en": "Poorvi",
+  "ta-IN": "Asmita",
+  "te-IN": "Suhana",
+  "kn-IN": "Saanvi",
+  "ml-IN": "Reshma",
+  "mr-IN": "Zahira",
+  "pa-IN": "Mehuli",
+  "bn-IN": "Kirra",
+  "gu-IN": "Falak",
+};
+let pineAccessToken;
+let pineAccessTokenExpiresAt = 0;
 
 const PROMPT_RULES = {
   student_supplied_work: "Use only the work and constraints the student provides. Never invent assignments, dates, school rules, people, calendar entries, or completed actions.",
@@ -86,14 +108,14 @@ function indiaTimestamp(date = new Date()) {
   return `${fields.year}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}:${fields.second}+05:30`;
 }
 
-function readJson(request) {
+function readJson(request, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     let body = "";
     let size = 0;
     request.on("data", (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error("Request body is too large."));
+      if (size > maxBytes) {
+        reject(Object.assign(new Error("Request body is too large."), { status: 413 }));
         return;
       }
       body += chunk;
@@ -111,16 +133,201 @@ function readJson(request) {
 
 function apiConfiguration() {
   const supabaseReady = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY);
+  const pineMode = process.env.PINE_LABS_ENV === "production" ? "production" : "sandbox";
+  const callbackUrl = getPineCallbackUrl();
   return {
+    build: "lifeops-workspace-2026-10-04",
     groq: {
       ready: Boolean(process.env.GROQ_API_KEY && process.env.GROQ_MODEL),
       model: process.env.GROQ_API_KEY && process.env.GROQ_MODEL ? process.env.GROQ_MODEL : null,
       endpoint: GROQ_URL,
     },
     supabase: { ready: supabaseReady },
-    pineLabs: { ready: false, reason: "Payment requests require guardian approval, but live checkout is unavailable until the Pine Labs merchant API contract and sandbox are configured." },
-    gnani: { ready: false, reason: "Voice capture uses browser speech recognition where supported. Gnani is not connected because its API contract and credentials are not configured." },
+    email: { ready: Boolean(process.env.RESEND_API_KEY && process.env.LIFEOPS_FROM_EMAIL) },
+    pineLabs: {
+      ready: Boolean(process.env.PINE_LABS_CLIENT_ID && process.env.PINE_LABS_CLIENT_SECRET && callbackUrl),
+      mode: pineMode,
+      reason: "Hosted checkout is available only after guardian approval and merchant credentials are configured.",
+    },
+    gnani: {
+      ready: Boolean(process.env.GNANI_API_KEY),
+      language: process.env.GNANI_LANGUAGE || "en-IN",
+      reason: process.env.GNANI_API_KEY ? "Gnani Prisma STT and Timbre TTS are configured; provider credentials need a live test." : "Add GNANI_API_KEY to the local .env to enable Gnani STT and TTS.",
+    },
   };
+}
+
+function getPineCallbackUrl(paymentRequestId) {
+  const configured = process.env.PINE_LABS_CALLBACK_URL;
+  if (!configured) return null;
+  try {
+    const url = new URL(configured);
+    if (url.protocol !== "https:" &&
+      (process.env.PINE_LABS_ENV === "production" || !["localhost", "127.0.0.1"].includes(url.hostname))) return null;
+    if (paymentRequestId) url.searchParams.set("paymentRequestId", paymentRequestId);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+async function pineRequest(pathname, { method = "GET", body, accessToken = true } = {}) {
+  const mode = process.env.PINE_LABS_ENV === "production" ? "production" : "sandbox";
+  const host = PINE_LABS_HOSTS[mode];
+  const headers = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "Request-ID": randomUUID(),
+    "Request-Timestamp": new Date().toISOString(),
+  };
+  if (accessToken) headers.Authorization = `Bearer ${await getPineAccessToken(host)}`;
+  const response = await fetch(`${host}${pathname}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(20000),
+  });
+  const text = await response.text();
+  let result;
+  try { result = text ? JSON.parse(text) : null; } catch { result = { message: text.slice(0, 500) }; }
+  if (!response.ok) {
+    throw Object.assign(new Error(result?.response_message || result?.message || result?.error_description || `Pine Labs returned HTTP ${response.status}.`), { status: 502 });
+  }
+  return result;
+}
+
+async function getPineAccessToken(host) {
+  if (pineAccessToken && Date.now() < pineAccessTokenExpiresAt - 60000) return pineAccessToken;
+  if (!process.env.PINE_LABS_CLIENT_ID || !process.env.PINE_LABS_CLIENT_SECRET) {
+    throw Object.assign(new Error("Pine Labs credentials are missing. Add the UAT client ID and client secret from your Pine Labs dashboard to .env."), { status: 503 });
+  }
+  const response = await fetch(`${host}/api/auth/v1/token`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "Request-ID": randomUUID(),
+      "Request-Timestamp": new Date().toISOString(),
+    },
+    body: JSON.stringify({
+      client_id: process.env.PINE_LABS_CLIENT_ID,
+      client_secret: process.env.PINE_LABS_CLIENT_SECRET,
+      grant_type: "client_credentials",
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || typeof result.access_token !== "string") {
+    throw Object.assign(new Error(result.message || `Pine Labs token request failed (HTTP ${response.status}).`), { status: 502 });
+  }
+  pineAccessToken = result.access_token;
+  pineAccessTokenExpiresAt = result.expires_at ? Date.parse(result.expires_at) : Date.now() + (Number(result.expires_in) || 3600) * 1000;
+  return pineAccessToken;
+}
+
+function pineCheckoutRequest(payment) {
+  const callbackUrl = getPineCallbackUrl(payment.id);
+  if (!callbackUrl) {
+    throw Object.assign(new Error("Set PINE_LABS_CALLBACK_URL to an HTTPS callback URL (or localhost for UAT) in .env."), { status: 503 });
+  }
+  return pineRequest("/api/checkout/v1/orders", {
+    method: "POST",
+    body: {
+      merchant_order_reference: payment.id,
+      order_amount: { value: payment.amount_paise, currency: "INR" },
+      integration_mode: "REDIRECT",
+      pre_auth: false,
+      allowed_payment_methods: [payment.method === "upi" ? "UPI" : "CARD"],
+      notes: payment.description.slice(0, 100),
+      callback_url: callbackUrl,
+    },
+  });
+}
+
+async function transcribeWithGnani(audio, fileName, mimeType, language) {
+  if (!process.env.GNANI_API_KEY) {
+    throw Object.assign(new Error("Add GNANI_API_KEY to the local .env and restart LifeOps to enable Gnani speech recognition."), { status: 503 });
+  }
+  const extension = path.extname(fileName).toLowerCase();
+  const acceptedTypes = new Set([".wav", ".mp3", ".ogg", ".flac", ".aac", ".m4a"]);
+  if (!acceptedTypes.has(extension)) {
+    throw Object.assign(new Error("Gnani accepts WAV, MP3, OGG, FLAC, AAC, or M4A audio files up to 60 seconds."), { status: 400 });
+  }
+  if (!/^(en-IN|hi-IN|ta-IN|te-IN|kn-IN|ml-IN|mr-IN|pa-IN|bn-IN|gu-IN|hi-en)$/.test(language)) {
+    throw Object.assign(new Error("Choose a supported Gnani language."), { status: 400 });
+  }
+  const form = new FormData();
+  form.set("audio_file", new Blob([audio], { type: mimeType || "application/octet-stream" }), path.basename(fileName));
+  form.set("language_code", language);
+  form.set("format", "transcribe");
+  const response = await fetch("https://api.vachana.ai/stt/v3", {
+    method: "POST",
+    headers: { "X-API-Key-ID": process.env.GNANI_API_KEY },
+    body: form,
+    signal: AbortSignal.timeout(75000),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || typeof result.transcript !== "string") {
+    throw Object.assign(new Error(result.message || `Gnani transcription failed (HTTP ${response.status}).`), { status: 502 });
+  }
+  return result;
+}
+
+async function synthesizeWithGnani(text) {
+  if (!process.env.GNANI_API_KEY) {
+    throw Object.assign(new Error("Add GNANI_API_KEY to the local .env and restart LifeOps to enable Gnani speech."), { status: 503 });
+  }
+  const language = process.env.GNANI_LANGUAGE || "en-IN";
+  const voice = process.env.GNANI_TTS_VOICE || GNANI_VOICES[language];
+  if (!voice) {
+    throw Object.assign(new Error("Set GNANI_LANGUAGE to a supported language or choose a matching GNANI_TTS_VOICE in .env."), { status: 400 });
+  }
+  const response = await fetch("https://api.vachana.ai/api/v1/tts/inference", {
+    method: "POST",
+    headers: {
+      "X-API-Key-ID": process.env.GNANI_API_KEY,
+      "Content-Type": "application/json",
+      Accept: "audio/mpeg",
+    },
+    body: JSON.stringify({
+      text,
+      voice,
+      model: "timbre-v2.5",
+      language,
+      speed: 1,
+      audio_config: { container: "mp3", bitrate: "128k" },
+    }),
+    signal: AbortSignal.timeout(45000),
+  });
+  if (!response.ok) {
+    const message = (await response.text()).slice(0, 500);
+    throw Object.assign(new Error(message || `Gnani speech synthesis failed (HTTP ${response.status}).`), { status: 502 });
+  }
+  const audio = Buffer.from(await response.arrayBuffer());
+  if (!audio.length || audio.length > 5 * 1024 * 1024) {
+    throw Object.assign(new Error("Gnani returned empty or oversized audio."), { status: 502 });
+  }
+  return audio;
+}
+
+async function sendLifeOpsEmail({ to, subject, text }) {
+  if (!process.env.RESEND_API_KEY || !process.env.LIFEOPS_FROM_EMAIL) {
+    throw Object.assign(new Error("Guardian email is not configured. Add RESEND_API_KEY and LIFEOPS_FROM_EMAIL from Resend to the local .env, then restart LifeOps."), { status: 503 });
+  }
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from: process.env.LIFEOPS_FROM_EMAIL, to: [to], subject, text }),
+    signal: AbortSignal.timeout(12000),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw Object.assign(new Error(result.message || `Resend could not send the guardian email (HTTP ${response.status}).`), { status: 502 });
+  }
+  return result;
 }
 
 function supabaseConfigured() {
@@ -128,7 +335,7 @@ function supabaseConfigured() {
 }
 
 function scheduleIdleShutdown() {
-  if (browserClients.size || idleShutdownTimer) return;
+  if (browserClients.size || idleShutdownTimer || !browserHasConnected) return;
   idleShutdownTimer = setTimeout(() => {
     idleShutdownTimer = undefined;
     const staleBefore = Date.now() - BROWSER_HEARTBEAT_TIMEOUT_MS;
@@ -147,6 +354,7 @@ function receiveBrowserHeartbeat(clientId) {
     clearTimeout(idleShutdownTimer);
     idleShutdownTimer = undefined;
   }
+  browserHasConnected = true;
   browserClients.set(clientId, Date.now());
   return true;
 }
@@ -337,6 +545,123 @@ async function handleApi(request, response, url) {
     await handleAuth(request, response, pathname);
     return true;
   }
+  if (pathname === "/api/gnani/transcribe" && request.method === "POST") {
+    const body = await readJson(request, 9 * 1024 * 1024);
+    if (typeof body.audioBase64 !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(body.audioBase64) ||
+      typeof body.fileName !== "string" || typeof body.language !== "string") {
+      sendJson(response, 400, { error: "Choose a supported audio file and language." });
+      return true;
+    }
+    const audio = Buffer.from(body.audioBase64, "base64");
+    if (!audio.length || audio.length > MAX_AUDIO_BYTES) {
+      sendJson(response, 413, { error: "Audio must be between 1 byte and 6 MB (maximum 60 seconds)." });
+      return true;
+    }
+    const result = await transcribeWithGnani(audio, body.fileName, body.mimeType, body.language);
+    sendJson(response, 200, { transcript: result.transcript, requestId: result.request_id || null });
+    return true;
+  }
+  if (pathname === "/api/gnani/speech" && request.method === "POST") {
+    const body = await readJson(request);
+    if (typeof body.text !== "string" || !body.text.trim() || body.text.length > 2000 ||
+      containsSensitiveContactData(body.text)) {
+      sendJson(response, 400, { error: "Provide a reply of up to 2,000 characters without private contact or payment details." });
+      return true;
+    }
+    const audio = await synthesizeWithGnani(body.text.trim());
+    sendJson(response, 200, { audioBase64: audio.toString("base64"), contentType: "audio/mpeg" });
+    return true;
+  }
+  const checkoutMatch = pathname.match(/^\/api\/payment-requests\/([0-9a-f-]+)\/checkout$/i);
+  if (checkoutMatch && request.method === "POST") {
+    if (!validUuid(checkoutMatch[1])) {
+      sendJson(response, 400, { error: "Invalid payment request ID." });
+      return true;
+    }
+    const session = await authenticatedSession(request);
+    if (session.user.user_metadata?.account_type !== "student") {
+      sendJson(response, 403, { error: "Pine Labs checkout can only be started by the student account for a guardian-approved payment." });
+      return true;
+    }
+    if (!apiConfiguration().pineLabs.ready) {
+      sendJson(response, 503, { error: "Configure Pine Labs client credentials and a callback URL in .env before starting checkout." });
+      return true;
+    }
+    const rows = await supabaseRequest(session, `payment_requests?id=eq.${checkoutMatch[1]}&select=id,description,amount_paise,method,status,approved_by&limit=1`);
+    const payment = rows[0];
+    if (!payment || !["approved", "checkout_pending"].includes(payment.status) || !payment.approved_by) {
+      sendJson(response, 409, { error: "A linked guardian must approve this payment request before Pine Labs checkout can begin." });
+      return true;
+    }
+    if (payment.amount_paise < 100) {
+      sendJson(response, 400, { error: "Pine Labs Online requires checkout orders of at least ₹1.00." });
+      return true;
+    }
+    const result = await pineCheckoutRequest(payment);
+    const checkout = result?.data || result;
+    if (typeof checkout?.order_id !== "string" || typeof checkout?.redirect_url !== "string") {
+      throw Object.assign(new Error("Pine Labs did not return a checkout order and redirect URL."), { status: 502 });
+    }
+    const redirectUrl = new URL(checkout.redirect_url);
+    if (redirectUrl.protocol !== "https:" || !/(^|\.)((pluralonline\.com)|(pluralpay\.in)|(pinepg\.in))$/i.test(redirectUrl.hostname)) {
+      throw Object.assign(new Error("Pine Labs returned an untrusted checkout URL."), { status: 502 });
+    }
+    pineOrderByPaymentId.set(payment.id, checkout.order_id);
+    sendJson(response, 200, {
+      orderId: checkout.order_id,
+      redirectUrl: redirectUrl.toString(),
+      message: "Guardian approval confirmed. Continue to Pine Labs hosted checkout; the payment only completes if the payer confirms there.",
+    });
+    return true;
+  }
+  const pineStatusMatch = pathname.match(/^\/api\/payment-requests\/([0-9a-f-]+)\/pine-status$/i);
+  if (pineStatusMatch && request.method === "GET") {
+    if (!validUuid(pineStatusMatch[1])) {
+      sendJson(response, 400, { error: "Invalid payment request ID." });
+      return true;
+    }
+    const session = await authenticatedSession(request);
+    if (session.user.user_metadata?.account_type !== "student") {
+      sendJson(response, 403, { error: "Only the student can check the status of their own Pine Labs checkout." });
+      return true;
+    }
+    const rows = await supabaseRequest(session, `payment_requests?id=eq.${pineStatusMatch[1]}&select=id,description,amount_paise,method,status,approved_by&limit=1`);
+    const payment = rows[0];
+    if (!payment || !payment.approved_by || !["approved", "checkout_pending", "paid", "failed", "cancelled"].includes(payment.status)) {
+      sendJson(response, 409, { error: "Only a guardian-approved payment can be checked with Pine Labs." });
+      return true;
+    }
+    if (payment.amount_paise < 100) {
+      sendJson(response, 400, { error: "Pine Labs Online requires checkout orders of at least ₹1.00." });
+      return true;
+    }
+    if (!apiConfiguration().pineLabs.ready) {
+      sendJson(response, 503, { error: "Configure Pine Labs client credentials and a callback URL in .env before checking payment status." });
+      return true;
+    }
+    let orderId = pineOrderByPaymentId.get(payment.id);
+    if (!orderId) {
+      const created = await pineCheckoutRequest(payment);
+      orderId = (created?.data || created)?.order_id;
+      if (typeof orderId !== "string") throw Object.assign(new Error("Pine Labs did not return the existing checkout order."), { status: 502 });
+      pineOrderByPaymentId.set(payment.id, orderId);
+    }
+    const result = await pineRequest(`/api/pay/v1/orders/${encodeURIComponent(orderId)}`);
+    const order = result?.data || result;
+    if (order?.merchant_order_reference !== payment.id || order?.order_amount?.value !== payment.amount_paise ||
+      !["CREATED", "PENDING", "PROCESSED", "AUTHORIZED", "CANCELLED", "ATTEMPTED", "FAILED", "FULLY_REFUNDED", "PARTIALLY_REFUNDED"].includes(order?.status)) {
+      throw Object.assign(new Error("Pine Labs returned an order status that could not be verified against this payment request."), { status: 502 });
+    }
+    sendJson(response, 200, {
+      orderId,
+      status: order.status,
+      amountPaise: order.order_amount?.value ?? null,
+      message: order.status === "PROCESSED"
+        ? "Pine Labs confirms this payment was processed."
+        : `Pine Labs payment status: ${order.status}.`,
+    });
+    return true;
+  }
   if (pathname === "/api/tasks" && (request.method === "GET" || request.method === "POST")) {
     const session = await authenticatedSession(request);
     if (request.method === "GET") {
@@ -430,6 +755,12 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, { ok: true });
     return true;
   }
+  if (pathname === "/api/conversations" && request.method === "GET") {
+    const session = await authenticatedSession(request);
+    const rows = await supabaseRequest(session, `conversation_messages?user_id=eq.${session.user.id}&select=conversation_id,role,content,created_at&order=created_at.desc&limit=500`);
+    sendJson(response, 200, { messages: rows });
+    return true;
+  }
   if (pathname === "/api/settings" && ["GET", "PUT"].includes(request.method)) {
     const session = await authenticatedSession(request);
     const query = `user_settings?user_id=eq.${session.user.id}&select=*`;
@@ -445,27 +776,133 @@ async function handleApi(request, response, url) {
       return true;
     }
     const body = await readJson(request);
-    const limit = body.paymentApprovalLimitPaise;
     const retention = body.chatRetentionDays;
-    if (!Number.isInteger(limit) || limit < 0 || limit > 5000000 ||
-      !Number.isInteger(retention) || retention < 7 || retention > 365 ||
+    if (!Number.isInteger(retention) || retention < 7 || retention > 365 ||
       !["system", "light", "dark"].includes(body.theme)) {
-      sendJson(response, 400, { error: "Settings require a 0–₹50,000 payment cap, 7–365 day chat retention and system, light or dark theme." });
+      sendJson(response, 400, { error: "Settings require 7–365 day chat retention and system, light or dark theme." });
       return true;
     }
-    const rows = await supabaseRequest(session, "user_settings?on_conflict=user_id&select=*", {
+    const saved = await supabaseRpc(session, "save_user_preferences", {
+      theme_arg: body.theme,
+      retention_days_arg: retention,
+    });
+    sendJson(response, 200, { settings: saved });
+    return true;
+  }
+  if (pathname === "/api/limit-change-requests" && request.method === "GET") {
+    const session = await authenticatedSession(request);
+    const rows = await supabaseRequest(session, "guardian_limit_requests?select=*&order=created_at.desc&limit=100");
+    sendJson(response, 200, { requests: rows });
+    return true;
+  }
+  if (pathname === "/api/limit-change-requests" && request.method === "POST") {
+    const session = await authenticatedSession(request);
+    const body = await readJson(request);
+    const email = typeof body.guardianEmail === "string" ? body.guardianEmail.trim().toLowerCase() : "";
+    const requestedLimitPaise = body.requestedLimitPaise;
+    if (session.user.user_metadata?.account_type === "guardian") {
+      sendJson(response, 403, { error: "Only a student account can request a payment-limit change." });
+      return true;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email === String(session.user.email || "").toLowerCase() ||
+      !Number.isInteger(requestedLimitPaise) || requestedLimitPaise < 0 || requestedLimitPaise > 5000000) {
+      sendJson(response, 400, { error: "Enter a different guardian email and a limit from ₹0 to ₹50,000." });
+      return true;
+    }
+    if (!process.env.RESEND_API_KEY || !process.env.LIFEOPS_FROM_EMAIL) {
+      sendJson(response, 503, { error: "Guardian email is not configured. Add RESEND_API_KEY and LIFEOPS_FROM_EMAIL from Resend to .env, verify your sender domain, and restart LifeOps." });
+      return true;
+    }
+    const currentRows = await supabaseRequest(session, `user_settings?user_id=eq.${session.user.id}&select=payment_approval_limit_paise&limit=1`);
+    const currentLimitPaise = currentRows[0]?.payment_approval_limit_paise ?? 5000000;
+    if (currentLimitPaise === requestedLimitPaise) {
+      sendJson(response, 409, { error: "That is already the current payment limit. Enter a different amount." });
+      return true;
+    }
+    const pendingRows = await supabaseRequest(session, `guardian_limit_requests?student_id=eq.${session.user.id}&status=eq.pending&select=id&limit=1`);
+    if (pendingRows.length) {
+      sendJson(response, 409, { error: "You already have a pending limit request. Wait for the guardian to respond or resend its email from the Approvals tab." });
+      return true;
+    }
+    const inserted = await supabaseRequest(session, "guardian_limit_requests?select=*", {
       method: "POST",
       body: {
-        user_id: session.user.id,
-        payment_approval_limit_paise: limit,
-        chat_retention_days: retention,
-        require_guardian_approval: true,
-        theme: body.theme,
-        updated_at: new Date().toISOString(),
+        student_id: session.user.id,
+        guardian_email: email,
+        current_limit_paise: currentLimitPaise,
+        requested_limit_paise: requestedLimitPaise,
+        status: "pending",
       },
-      prefer: "resolution=merge-duplicates,return=representation",
+      prefer: "return=representation",
     });
-    sendJson(response, 200, { settings: rows[0] });
+    const displayName = session.user.user_metadata?.display_name || "Your student";
+    const emailText = [
+      `Hello,`,
+      ``,
+      `${displayName} requested your approval to change their LifeOps payment limit.`,
+      `Current limit: ₹${(currentLimitPaise / 100).toFixed(2)}`,
+      `Requested limit: ₹${(requestedLimitPaise / 100).toFixed(2)}`,
+      ``,
+      `To review this request, create a LifeOps account using this email address, verify it, and choose the “Parent or guardian” account type.`,
+      ``,
+      `Open LifeOps on the student's computer, sign in as the verified guardian, then open Approvals to approve or decline the limit change. The limit changes only after you approve it there. This local prototype does not charge money.`,
+    ].join("\n");
+    try {
+      const mail = await sendLifeOpsEmail({
+        to: email,
+        subject: "LifeOps: guardian approval requested for a payment limit",
+        text: emailText,
+      });
+      sendJson(response, 201, { request: inserted[0], message: "Approval request emailed to the guardian. The current limit remains unchanged until they approve in LifeOps.", emailId: mail.id });
+    } catch (error) {
+      sendJson(response, 502, {
+        error: `The approval request was saved, but the email could not be sent: ${error.message}`,
+        request: inserted[0],
+      });
+    }
+    return true;
+  }
+  const resendLimitRequestMatch = pathname.match(/^\/api\/limit-change-requests\/([0-9a-f-]+)\/resend$/i);
+  if (resendLimitRequestMatch && request.method === "POST") {
+    const session = await authenticatedSession(request);
+    if (!validUuid(resendLimitRequestMatch[1]) || session.user.user_metadata?.account_type === "guardian") {
+      sendJson(response, 400, { error: "A valid student payment-limit request is required." });
+      return true;
+    }
+    const rows = await supabaseRequest(session, `guardian_limit_requests?id=eq.${resendLimitRequestMatch[1]}&student_id=eq.${session.user.id}&status=eq.pending&select=*`);
+    if (!rows.length) {
+      sendJson(response, 404, { error: "No pending payment-limit request was found." });
+      return true;
+    }
+    const approval = rows[0];
+    const emailText = [
+      "A LifeOps student is still waiting for your approval to change their payment limit.",
+      `Current limit: ₹${(approval.current_limit_paise / 100).toFixed(2)}`,
+      `Requested limit: ₹${(approval.requested_limit_paise / 100).toFixed(2)}`,
+      "",
+      "Create a LifeOps account using this email address, verify it, and choose the Parent or guardian account type. Open LifeOps on the student's computer, sign in as the guardian, and use the Approvals tab to approve or decline. The limit changes only if you approve. No payment is made.",
+    ].join("\n");
+    const mail = await sendLifeOpsEmail({
+      to: approval.guardian_email,
+      subject: "LifeOps reminder: guardian approval requested",
+      text: emailText,
+    });
+    sendJson(response, 200, { message: "Approval email sent again.", emailId: mail.id });
+    return true;
+  }
+  const limitRequestMatch = pathname.match(/^\/api\/limit-change-requests\/([0-9a-f-]+)\/decision$/i);
+  if (limitRequestMatch && request.method === "POST") {
+    const session = await authenticatedSession(request);
+    const body = await readJson(request);
+    if (!validUuid(limitRequestMatch[1]) || !["approved", "declined"].includes(body.decision)) {
+      sendJson(response, 400, { error: "A valid request ID and approve/decline decision are required." });
+      return true;
+    }
+    const result = await supabaseRpc(session, "respond_to_guardian_limit_request", {
+      request_id_arg: limitRequestMatch[1],
+      decision_arg: body.decision,
+    });
+    sendJson(response, 200, { request: Array.isArray(result) ? result[0] : result, message: body.decision === "approved" ? "Guardian approved the new payment limit." : "Guardian declined the payment-limit change." });
     return true;
   }
   if (pathname === "/api/retention/cleanup" && request.method === "POST") {
@@ -484,8 +921,31 @@ async function handleApi(request, response, url) {
       sendJson(response, 400, { error: "Enter a valid parent or guardian email." });
       return true;
     }
+    if (!process.env.RESEND_API_KEY || !process.env.LIFEOPS_FROM_EMAIL) {
+      sendJson(response, 503, { error: "Guardian email is not configured. Add RESEND_API_KEY and LIFEOPS_FROM_EMAIL from Resend to .env, verify your sender domain, and restart LifeOps." });
+      return true;
+    }
     const result = await supabaseRpc(session, "create_guardian_invitation", { guardian_email_arg: body.email.trim().toLowerCase() });
-    sendJson(response, 201, { invitation: Array.isArray(result) ? result[0] : result });
+    const invitation = Array.isArray(result) ? result[0] : result;
+    const emailText = [
+      "A LifeOps student invited you to link as their parent or guardian.",
+      "",
+      "To accept, create a LifeOps account with this email address, verify it, choose the Parent or guardian account type, then enter this one-time code in the Account section:",
+      invitation.invite_code,
+      "",
+      "Open LifeOps on the student's computer to complete the link. This invitation expires in seven days. Email verification confirms control of the inbox, not legal guardianship.",
+    ].join("\n");
+    try {
+      await sendLifeOpsEmail({
+        to: body.email.trim().toLowerCase(),
+        subject: "LifeOps: parent or guardian invitation",
+        text: emailText,
+      });
+    } catch (error) {
+      sendJson(response, error.status || 502, { error: `The invitation was created, but the email could not be sent: ${error.message}` });
+      return true;
+    }
+    sendJson(response, 201, { invitation: { expires_at: invitation.expires_at }, message: "Invitation email sent to the guardian." });
     return true;
   }
   if (pathname === "/api/guardian-invitations/accept" && request.method === "POST") {
@@ -577,7 +1037,7 @@ async function handleApi(request, response, url) {
     sendJson(response, 200, {
       request: rows[0],
       message: body.status === "approved"
-        ? "Guardian approved. No charge was made: live Pine Labs checkout is not configured."
+        ? "Guardian approved. No charge was made; the student must explicitly start Pine Labs checkout."
         : body.status === "declined" ? "Guardian declined the payment request." : "Payment request cancelled.",
     });
     return true;

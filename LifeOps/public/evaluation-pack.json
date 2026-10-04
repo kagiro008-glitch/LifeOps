@@ -94,7 +94,7 @@
     }
   ],
   "unverifiedOrBlocked": [
-    "Gnani speech-to-text and text-to-speech are not integrated because the connector/API contract and credentials are not configured. Browser speech recognition and synthesis are not Gnani evidence.",
+    "Gnani speech-to-text and text-to-speech are implemented using the documented REST APIs, but have not been tested against a configured Gnani account. Browser speech recognition and synthesis are fallbacks, not Gnani evidence.",
     "Supabase auth/storage code and schema are present but not live-tested; project URL/anon key are blank in the local environment and the SQL migration has not been applied.",
     "No consented participant recording or complete successful AgenticOrg run with two distinct human inputs is available.",
     "A complete platform test log, per-case pass/fail judgments, and historical prompt snapshots are not available. The ten cases above are a plan, not results.",

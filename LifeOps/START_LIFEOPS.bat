@@ -8,41 +8,57 @@ if errorlevel 1 goto no_node
 node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)" >nul 2>&1
 if errorlevel 1 goto old_node
 
-node -e "fetch('http://127.0.0.1:4173/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >nul 2>&1
-if not errorlevel 1 goto already_running
+for /L %%P in (4173,1,4190) do if not defined LIFEOPS_PORT call :probe_running_port %%P
+if defined LIFEOPS_PORT goto already_running
+
+for /f "delims=" %%P in ('node -e "const net=require('net');let p=4173;const probe=()=>{if(p>4190)process.exit(1);const s=net.createServer();s.once('error',()=>{p++;probe()});s.listen(p,'127.0.0.1',()=>s.close(()=>console.log(p)))};probe()"') do set "LIFEOPS_PORT=%%P"
+if not defined LIFEOPS_PORT goto no_port
+set "PORT=%LIFEOPS_PORT%"
 
 echo Starting LifeOps...
 start "" /B node server.js
 
 for /L %%I in (1,1,20) do (
-  node -e "fetch('http://127.0.0.1:4173/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >nul 2>&1
-  if not errorlevel 1 goto open_app
-  ping -n 2 127.0.0.1 >nul
+  if not defined LIFEOPS_READY (
+    node -e "fetch('http://127.0.0.1:%LIFEOPS_PORT%/api/config').then(r=>r.json()).then(c=>process.exit(c.build==='lifeops-workspace-2026-10-04'?0:1)).catch(()=>process.exit(1))" >nul 2>&1
+    if not errorlevel 1 set "LIFEOPS_READY=1"
+    if not defined LIFEOPS_READY ping -n 2 127.0.0.1 >nul
+  )
 )
+if not defined LIFEOPS_READY goto no_response
+goto open_app
 
+:already_running
+echo LifeOps is already running. Opening its workspace...
+goto monitor_browser
+
+:open_app
+echo LifeOps is ready.
+goto monitor_browser
+
+:monitor_browser
+start "" "http://localhost:%LIFEOPS_PORT%/#product"
+echo LifeOps is running. This window will close when you close the last LifeOps tab.
+node -e "const u='http://127.0.0.1:%LIFEOPS_PORT%/api/config';const wait=ms=>new Promise(r=>setTimeout(r,ms));(async()=>{for(;;){try{await fetch(u);await wait(500)}catch{break}}})()"
+exit /b 0
+
+:probe_running_port
+node -e "fetch('http://127.0.0.1:%1/api/config',{signal:AbortSignal.timeout(1000)}).then(r=>r.json()).then(c=>process.exit(c.build==='lifeops-workspace-2026-10-04'?0:1)).catch(()=>process.exit(1))" >nul 2>&1
+if not errorlevel 1 set "LIFEOPS_PORT=%1"
+exit /b 0
+
+:no_response
 echo.
-echo LifeOps did not respond at http://localhost:4173.
+echo LifeOps did not respond at http://localhost:%LIFEOPS_PORT%.
 echo Check the messages above for a server error.
 pause
 exit /b 1
 
-:already_running
-echo LifeOps is already running. Opening the existing local app...
-goto open_existing_app
-
-:open_app
-echo LifeOps is ready.
-goto launch_browser
-
-:open_existing_app
-start "" "http://localhost:4173/"
-exit /b 0
-
-:launch_browser
-start "" "http://localhost:4173/"
-echo LifeOps is running. Close the last LifeOps browser tab to stop the server and close this window.
-node -e "const u='http://127.0.0.1:4173/api/config';const wait=ms=>new Promise(r=>setTimeout(r,ms));(async()=>{for(;;){try{await fetch(u);await wait(500)}catch{break}}})()"
-exit /b 0
+:no_port
+echo LifeOps could not find an available local port between 4173 and 4190.
+echo Close another local service or LifeOps server, then try again.
+pause
+exit /b 1
 
 :no_node
 echo Node.js is required but was not found.

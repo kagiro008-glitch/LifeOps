@@ -43,6 +43,19 @@
             </div>
             <div class="mode-note" id="mode-banner" role="status"><span class="mode-dot" aria-hidden="true"></span><span id="mode-copy">Checking chat availability…</span></div>
 
+            <div class="workspace-sections-heading">
+              <span>WORKSPACE SECTIONS</span>
+              <span>Select a section below to switch views</span>
+            </div>
+            <nav class="workspace-tabs" role="tablist" aria-label="LifeOps sections">
+              <button class="workspace-tab is-active" id="tab-chat" type="button" role="tab" aria-selected="true" aria-controls="view-chat" data-view="chat">Chat</button>
+              <button class="workspace-tab" id="tab-tasks" type="button" role="tab" aria-selected="false" aria-controls="view-tasks" data-view="tasks">Tasks <span id="tab-task-count">0</span></button>
+              <button class="workspace-tab" id="tab-approvals" type="button" role="tab" aria-selected="false" aria-controls="view-approvals" data-view="approvals">Approvals</button>
+              <button class="workspace-tab" id="tab-activity" type="button" role="tab" aria-selected="false" aria-controls="view-activity" data-view="activity">Activity</button>
+              <button class="workspace-tab" id="tab-settings" type="button" role="tab" aria-selected="false" aria-controls="view-settings" data-view="settings">Settings</button>
+            </nav>
+
+            <section class="workspace-view" id="view-chat" role="tabpanel" aria-labelledby="tab-chat">
             <div class="planner-grid">
               <section class="chat-panel" aria-labelledby="chat-title">
                 <div class="panel-heading">
@@ -57,12 +70,19 @@
                 </div>
                 <div class="chat-actions" id="chat-actions" hidden>
                   <button class="text-button" id="speak-button" type="button" disabled>Read reply aloud</button>
+                  <audio id="gnani-audio-player" controls hidden></audio>
                 </div>
                 <form class="chat-form" id="chat-form">
                   <label class="visually-hidden" for="message-input">Message LifeOps</label>
                   <input id="message-input" name="message" maxlength="4000" placeholder="Write a message…" autocomplete="off" disabled>
-                  <button class="voice-button" id="voice-button" type="button" aria-label="Record a voice message" title="Voice input is not available in this browser" disabled>Mic</button>
+                  <button class="voice-button" id="voice-button" type="button" aria-label="Record a voice message" title="Browser speech recognition fallback" disabled>Mic</button>
                   <button type="submit" aria-label="Send message" disabled id="send-button">Send</button>
+                </form>
+                <form class="voice-upload-form" id="voice-upload-form">
+                  <label for="voice-audio-file">Gnani voice input · upload an audio clip (WAV, MP3, OGG, FLAC, AAC, M4A; up to 60 seconds)</label>
+                  <div><input id="voice-audio-file" type="file" accept=".wav,.mp3,.ogg,.flac,.aac,.m4a,audio/wav,audio/mpeg,audio/ogg,audio/flac,audio/aac,audio/mp4" required><select id="voice-language" aria-label="Audio language"><option value="en-IN">English (India)</option><option value="hi-IN">Hindi</option><option value="hi-en">Hinglish</option><option value="ta-IN">Tamil</option><option value="te-IN">Telugu</option><option value="kn-IN">Kannada</option><option value="ml-IN">Malayalam</option><option value="mr-IN">Marathi</option><option value="pa-IN">Punjabi</option><option value="bn-IN">Bengali</option><option value="gu-IN">Gujarati</option></select><button id="voice-upload-submit" type="submit" disabled>Transcribe with Gnani</button></div>
+                  <p id="voice-provider-note">Checking Gnani setup…</p>
+                  <p>Audio is sent to Gnani for transcription and is not saved by LifeOps. Do not upload private or payment information.</p>
                 </form>
                 <details class="chat-info">
                   <summary>How chat works</summary>
@@ -71,9 +91,9 @@
               </section>
 
             </div>
-            <details class="task-manager" id="task-manager">
-              <summary>Tasks <span class="task-count" id="task-count">0</span></summary>
-              <div class="task-manager-content">
+            </section>
+            <section class="workspace-view" id="view-tasks" role="tabpanel" aria-labelledby="tab-tasks" hidden>
+              <div class="workspace-panel-heading"><div><h3>Your tasks</h3><p>Add and manage schoolwork in one list.</p></div><span class="task-count"><span id="task-count">0</span> active</span></div>
                 <form class="task-form" id="task-form">
                   <label>Task<input id="task-title-input" maxlength="180" required placeholder="e.g. Pay for the school trip"></label>
                   <label>Due date<input id="task-due-input" type="date"></label>
@@ -89,11 +109,46 @@
                 <div class="task-list" id="task-list"></div>
                 <p class="task-empty" id="task-empty">No tasks yet. Add one here or ask LifeOps in chat.</p>
                 <p class="task-storage-note" id="task-storage-note">Tasks stay on this device until you sign in and connect Supabase. No reminders are sent.</p>
+            </section>
+            <section class="workspace-view" id="view-approvals" role="tabpanel" aria-labelledby="tab-approvals" hidden>
+              <div class="workspace-panel-heading"><div><h3>Guardian approvals</h3><p>Payment requests and payment-limit changes require a verified guardian.</p></div><button class="text-button" id="refresh-payments" type="button">Refresh</button></div>
+              <article class="workspace-card" id="limit-request-card">
+                <h4>Request a payment limit change</h4>
+                <p>The current limit stays in effect until a guardian account with this verified email approves your request.</p>
+                <form class="task-form limit-request-form" id="limit-request-form">
+                  <label>Guardian email<input id="limit-guardian-email" type="email" required placeholder="parent@example.com"></label>
+                  <label>Requested maximum (₹)<input id="requested-approval-limit" type="number" min="0" max="50000" step="0.01" required></label>
+                  <button type="submit" class="button button-dark">Email approval request</button>
+                </form>
+                <p class="task-storage-note" id="limit-request-status">Sign in with a student account to request a change.</p>
+                <p class="task-storage-note" id="email-provider-status">Checking guardian email setup…</p>
+              </article>
+              <div class="workspace-card">
+                <h4>Payment requests</h4>
+                <p>Guardian decisions are recorded here. Approval only records permission; this prototype never charges money.</p>
+                <div id="payment-request-list"></div>
               </div>
-            </details>
-            <section class="guardian-panel" id="guardian-panel" hidden>
-              <div class="guardian-heading"><h3>Guardian requests</h3><button class="text-button" id="refresh-payments" type="button">Refresh</button></div>
-              <div id="payment-request-list"></div>
+              <div class="workspace-card">
+                <h4>Payment limit requests</h4>
+                <div id="limit-approval-list"><p class="task-empty">Sign in to view approval requests.</p></div>
+              </div>
+            </section>
+            <section class="workspace-view" id="view-activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
+              <div class="workspace-panel-heading"><div><h3>Activity</h3><p>Your saved conversations and recent settings changes.</p></div><button class="text-button" id="refresh-activity" type="button">Refresh</button></div>
+              <div class="activity-grid">
+                <div class="workspace-card"><h4>Chat history</h4><div id="chat-history-list"><p class="task-empty">Sign in to view saved conversations.</p></div></div>
+                <div class="workspace-card"><h4>Settings activity</h4><ol class="activity-list" id="settings-activity-list"><li>No settings changes recorded on this device.</li></ol></div>
+              </div>
+            </section>
+            <section class="workspace-view" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+              <div class="workspace-panel-heading"><div><h3>Settings</h3><p>Personalize the app and privacy controls.</p></div></div>
+              <form id="settings-form" class="settings-form">
+                <label>Appearance<select id="settings-theme"><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+                <label>Chat retention (days)<input id="chat-retention-days" type="number" min="7" max="365" step="1" value="90"></label>
+                <p>Old saved chats are deleted the next time you open LifeOps while signed in after the chosen retention period. Tasks are kept until you remove them.</p>
+                <button type="submit" class="button button-dark">Save settings</button>
+              </form>
+              <article class="workspace-card current-limit-card"><h4>Payment approval limit</h4><p>Current maximum: <strong id="current-approval-limit">Sign in to view</strong></p><p>A student cannot change this directly. Submit a request in Approvals; the value updates only after the verified guardian approves.</p></article>
             </section>
           </div>
         </div>
@@ -159,8 +214,8 @@
             <div class="connector-list">
               <div><span class="connector-name">Groq · chat</span><code>POST https://api.groq.com/openai/v1/chat/completions</code><span class="connector-detail">Live only with server-side GROQ_API_KEY and GROQ_MODEL.</span></div>
               <div class="connector-pending"><span class="connector-name">Supabase · auth and storage</span><span class="pending-chip">NEEDS PROJECT KEYS + SCHEMA</span><span class="connector-detail">Account sign-up, task/chat storage and guardian links are implemented against user-scoped Supabase REST APIs. Apply database/schema.sql and configure SUPABASE_URL plus SUPABASE_ANON_KEY.</span></div>
-              <div class="connector-pending"><span class="connector-name">Gnani · voice input</span><span class="pending-chip">NOT CONNECTED</span><span class="connector-detail">Browser speech recognition is available in supported browsers, but it is not Gnani. The required connector call and its response are not implemented.</span></div>
-              <div class="connector-pending"><span class="connector-name">Pine Labs · payments</span><span class="pending-chip">CURRENT TOOL CONFIG NEEDS RECHECK</span><span class="connector-detail">A previous view showed the <code>pinelabs_plural</code> connector, but the latest AgenticOrg Overview showed “No tools configured” after tool-scope changes. Current agent scopes are unknown. Do not assume either order tool is configured or run the payment agent.</span></div>
+              <div class="connector-pending"><span class="connector-name">Gnani · voice</span><span class="pending-chip">OPTIONAL SERVER KEY</span><span class="connector-detail">Gnani Prisma transcription and Timbre speech use server-side GNANI_API_KEY. Transcripts are placed in the chat box for review; audio is not saved by LifeOps.</span></div>
+              <div class="connector-pending"><span class="connector-name">Pine Labs · hosted checkout</span><span class="pending-chip">SANDBOX BY DEFAULT</span><span class="connector-detail">Uses Pine Labs OAuth client credentials on the server. Hosted checkout starts only after an approved guardian request; production mode must be explicitly selected. AgenticOrg tool setup remains separate.</span></div>
             </div>
             <details class="prompt-details"><summary>View the system prompt</summary><pre id="system-prompt">Loading…</pre></details>
           </article>
@@ -175,8 +230,8 @@
             <div class="rail-score"><div><span>Student tasks and chat</span><strong>6<span>/10</span></strong></div><div class="score-track"><span class="score-50"></span></div><p>Manual, chat-approved tasks and voice transcripts share one task list; Groq and Supabase keys are still blank.</p></div>
             <div class="rail-score"><div><span>Account memory · Supabase</span><strong>4<span>/10</span></strong></div><div class="score-track"><span class="score-50"></span></div><p>Schema, Auth and row-scoped REST paths are prepared; project keys, migration, retention/deletion controls and live testing remain.</p></div>
             <div class="rail-score"><div><span>Guardian verification</span><strong>3<span>/10</span></strong></div><div class="score-track"><span class="score-20"></span></div><p>Email-matched, expiring invite-code flow and approval policies are prepared; no live Supabase project or identity review.</p></div>
-            <div class="rail-score"><div><span>Voice · Gnani</span><strong>2<span>/10</span></strong></div><div class="score-track"><span class="score-20"></span></div><p>Browser speech input/output works where supported. Required Gnani connector/API is not connected.</p></div>
-            <div class="rail-score"><div><span>Payments · Pine Labs</span><strong>1<span>/10</span></strong></div><div class="score-track"><span class="score-10"></span></div><p>AgenticOrg's latest Overview showed no tools configured. Current scopes, safe synthetic mode, tool schemas, and pre-call guardian enforcement are unverified. This local prototype makes no Pine Labs call.</p></div>
+            <div class="rail-score"><div><span>Voice · Gnani</span><strong>2<span>/10</span></strong></div><div class="score-track"><span class="score-20"></span></div><p>Gnani STT/TTS calls are implemented but require an account key and live verification. Browser speech remains a fallback.</p></div>
+            <div class="rail-score"><div><span>Payments · Pine Labs</span><strong>1<span>/10</span></strong></div><div class="score-track"><span class="score-10"></span></div><p>UAT hosted checkout and verified status lookups are implemented but require merchant credentials and end-to-end sandbox tests. Each checkout is gated by a guardian-approved request. AgenticOrg tool setup remains separate.</p></div>
           </article>
           <article class="case-card case-demo">
             <div class="case-card-heading"><span class="case-index">06 / FIVE-MINUTE RECORDING</span><span class="case-card-mark">◉</span></div>
@@ -216,7 +271,7 @@
             <article class="business-note"><span class="business-number">03</span><div class="note-symbol note-symbol-peach">1k</div><h3>First 1,000 students.</h3><p>Recruit five schools through principal/teacher champions, with 200 opt-in students each. Run a two-week class pilot; show the companion in parent orientation and school community groups. First try: turn one real assignment into a plan. Week-three habit: a student-owned weekly reset and visible progress.</p><span class="business-foot">5 SCHOOLS × 200 OPT-INS · A DISTRIBUTION TEST</span></article>
             <article class="business-note"><span class="business-number">04</span><div class="note-symbol note-symbol-lilac">!</div><h3>What could kill it?</h3><p>Wrong deadlines erode trust. Privacy or consent failures involving minors end the pilot. Students may not return after novelty fades; schools may not pay or share distribution; voice can fail in noisy classrooms or across languages. Pilot against each risk and stop if accuracy, safety or week-three retention misses the bar.</p><span class="business-foot">TRUST FIRST · RETENTION IS THE TEST</span></article>
             </div>
-            <p class="business-caveat">Pine Labs card/UPI checkout is part of LifeOps's earlier-round proposal for student expenses such as a trip or materials. The latest AgenticOrg Overview showed no tools configured, so the current connector/agent state is unknown. Every student payment must be explicitly approved by a verified guardian; this local build records approval requests only and does not charge money.</p>
+            <p class="business-caveat">Pine Labs UAT hosted checkout is available after guardian approval when merchant credentials are configured. Production checkout requires explicit production credentials and merchant onboarding. This local integration does not itself prove guardianship or meet production compliance requirements; AgenticOrg connector setup is separate.</p>
           </details>
       </section>
     </main>
@@ -254,16 +309,6 @@
         <button class="text-button" id="sign-out-button" type="button">Sign out</button>
       </div>
       <p class="dialog-footnote" id="account-footnote">Accounts and cloud data are disabled until Supabase is configured. Email verification confirms control of an inbox, not legal guardianship. Never add real student or payment data to this prototype.</p>
-    </dialog>
-    <dialog class="app-dialog" id="settings-dialog">
-      <form method="dialog" class="dialog-top"><h2>Settings</h2><button aria-label="Close" class="dialog-close">×</button></form>
-      <form id="settings-form" class="dialog-form">
-        <label>Appearance<select id="settings-theme"><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
-        <label>Maximum payment request (₹)<input id="approval-limit" type="number" min="0" max="50000" step="0.01" value="50000"></label>
-        <label>Chat retention (days)<input id="chat-retention-days" type="number" min="7" max="365" step="1" value="90"></label>
-        <p>Set 0 to block payment requests. Every student payment still requires explicit approval by a linked guardian; this never auto-charges. Old saved chats are deleted the next time you open LifeOps while signed in after the chosen retention period. Tasks are kept until you remove them.</p>
-        <button type="submit" class="button button-dark">Save settings</button>
-      </form>
     </dialog>
     <button class="settings-fab" id="settings-button" type="button">Settings</button>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
